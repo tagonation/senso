@@ -2,7 +2,7 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <title>Senso Pro - Fixed Zoom</title>
+    <title>Senso Pro - Anti-Zoom-Final</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <style>
         body { 
@@ -11,33 +11,27 @@
             font-family: sans-serif; 
             color: white; 
             overflow: hidden; 
-            /* Verhindert Standard-Gesten wie Zoomen oder Refresh-Pull-down */
-            touch-action: none; 
+            touch-action: none; /* Deaktiviert Zoom/Scroll auf Browser-Ebene */
             -webkit-user-select: none;
             user-select: none;
+            position: fixed; /* Verankert den Body, um "Bouncing" zu verhindern */
+            width: 100%;
+            height: 100%;
         }
         #game-wrapper { position: relative; width: 100vw; height: 100vh; display: flex; justify-content: center; align-items: center; }
         canvas { background: radial-gradient(circle, #1a1a1a 0%, #000 100%); display: block; }
         
-        #ui { position: absolute; top: env(safe-area-inset-top, 20px); text-align: center; width: 100%; pointer-events: none; z-index: 10; }
-        #level-info { font-size: 1rem; color: #aaa; letter-spacing: 2px; }
+        #ui { position: absolute; top: 20px; text-align: center; width: 100%; pointer-events: none; z-index: 10; }
         #score { font-size: 4rem; font-weight: bold; color: #f1c40f; }
         
-        /* Touch Buttons */
         .touch-zone {
-            position: absolute; bottom: 0; width: 45%; height: 80%;
+            position: absolute; bottom: 0; width: 48%; height: 90%;
             z-index: 50; display: flex; align-items: center; justify-content: center;
-            /* Wichtig: Verhindert das "Highlight"-Blauen beim Tippen auf iOS */
             -webkit-tap-highlight-color: transparent;
         }
         #touch-left { left: 0; }
         #touch-right { right: 0; }
-        .touch-indicator {
-            width: 70px; height: 70px; background: rgba(255,255,255,0.05);
-            border: 2px solid rgba(255,255,255,0.1); border-radius: 50%;
-            display: flex; align-items: center; justify-content: center; font-size: 1.5rem; color: rgba(255,255,255,0.2);
-        }
-
+        
         #senso-display {
             position: absolute; bottom: 20px; left: 20px;
             display: grid; grid-template-columns: repeat(3, 35px); gap: 5px;
@@ -50,7 +44,7 @@
             display: none; position: absolute; inset: 0; background: rgba(0,0,0,0.95); 
             z-index: 100; flex-direction: column; justify-content: center; align-items: center; text-align: center;
         }
-        .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 15px 0; background: rgba(255,255,255,0.1); padding: 15px; border-radius: 12px; font-size: 0.9rem; width: 80%; max-width: 400px; }
+        .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 15px 0; background: rgba(255,255,255,0.1); padding: 15px; border-radius: 12px; font-size: 0.9rem; }
         button { background: #2ecc71; border: none; padding: 15px 40px; font-size: 1.2rem; font-weight: bold; cursor: pointer; border-radius: 50px; color: white; }
     </style>
 </head>
@@ -58,12 +52,12 @@
 
 <div id="game-wrapper">
     <div id="ui">
-        <div id="level-info">Level 1</div>
+        <div id="level-info" style="color:#aaa; letter-spacing:2px">Level 1</div>
         <div id="score">0</div>
     </div>
 
-    <div id="touch-left" class="touch-zone"><div class="touch-indicator">←</div></div>
-    <div id="touch-right" class="touch-zone"><div class="touch-indicator">→</div></div>
+    <div id="touch-left" class="touch-zone"></div>
+    <div id="touch-right" class="touch-zone"></div>
     
     <div id="senso-display">
         <div></div><div id="pad-up" class="pad">↑</div><div></div>
@@ -81,6 +75,24 @@
 </div>
 
 <script>
+    // --- ANTI-ZOOM LOGIK (Der wichtigste Teil) ---
+    let lastTouchEnd = 0;
+    document.addEventListener('touchend', function (event) {
+        let now = (new Date()).getTime();
+        // Wenn der Abstand zwischen zwei Tips kleiner als 300ms ist -> Blockieren
+        if (now - lastTouchEnd <= 300) {
+            event.preventDefault();
+        }
+        lastTouchEnd = now;
+    }, false);
+
+    // Verhindert das Zoomen mit zwei Fingern (Pinch-to-zoom)
+    document.addEventListener('touchstart', function (event) {
+        if (event.touches.length > 1) {
+            event.preventDefault();
+        }
+    }, { passive: false });
+
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
     const scoreEl = document.getElementById('score');
@@ -217,18 +229,12 @@
         if(dir === "right") { keys.right = active; document.getElementById('pad-right').classList.toggle('active', active); }
     };
 
-    // Keyboard
     document.addEventListener('keydown', e => { if(e.key === "ArrowLeft") handleInput("left", true); if(e.key === "ArrowRight") handleInput("right", true); });
     document.addEventListener('keyup', e => { if(e.key === "ArrowLeft") handleInput("left", false); if(e.key === "ArrowRight") handleInput("right", false); });
 
-    // Touch - Verhindert Default-Verhalten (Zoom/Scroll) explizit
-    const preventAll = (e) => { if(e.touches && e.touches.length > 1) e.preventDefault(); };
-    document.addEventListener('touchstart', preventAll, { passive: false });
-
     document.getElementById('touch-left').addEventListener('pointerdown', e => { e.preventDefault(); handleInput("left", true); });
     document.getElementById('touch-right').addEventListener('pointerdown', e => { e.preventDefault(); handleInput("right", true); });
-    window.addEventListener('pointerup', (e) => { e.preventDefault(); handleInput("left", false); handleInput("right", false); });
-    window.addEventListener('pointercancel', () => { handleInput("left", false); handleInput("right", false); });
+    window.addEventListener('pointerup', () => { handleInput("left", false); handleInput("right", false); });
 
     init();
 </script>
