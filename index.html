@@ -2,7 +2,7 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <title>Senso Pro - Touch Fixed</title>
+    <title>Senso Pro - Final Mobile Version</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <style>
         body { 
@@ -16,19 +16,19 @@
         #ui { position: absolute; top: 20px; text-align: center; width: 100%; pointer-events: none; z-index: 10; }
         #score { font-size: 4rem; font-weight: bold; color: #f1c40f; }
         
-        /* Sichtbare Touch-Buttons */
+        /* Touch-Buttons weiter oben verortet */
         .touch-zone {
-            position: absolute; bottom: 0; width: 45%; height: 80%;
-            z-index: 100; display: flex; align-items: flex-end; justify-content: center;
-            padding-bottom: 40px; -webkit-tap-highlight-color: transparent;
+            position: absolute; bottom: 15%; width: 45%; height: 70%;
+            z-index: 100; display: flex; align-items: center; justify-content: center;
+            -webkit-tap-highlight-color: transparent;
         }
         #touch-left { left: 0; }
         #touch-right { right: 0; }
         .btn-visual {
-            width: 80px; height: 80px; background: rgba(255,255,255,0.1);
-            border: 2px solid rgba(255,255,255,0.3); border-radius: 50%;
+            width: 90px; height: 90px; background: rgba(255,255,255,0.1);
+            border: 3px solid rgba(255,255,255,0.2); border-radius: 50%;
             display: flex; align-items: center; justify-content: center;
-            font-size: 2rem; color: rgba(255,255,255,0.5);
+            font-size: 2.5rem; color: rgba(255,255,255,0.4);
         }
 
         #senso-display {
@@ -37,20 +37,21 @@
             background: rgba(255,255,255,0.05); padding: 10px; border-radius: 8px; pointer-events: none;
         }
         .pad { width: 35px; height: 35px; border: 1px solid #333; display: flex; align-items: center; justify-content: center; border-radius: 4px; color: #444; font-size: 0.7rem; }
-        .active { background: #f1c40f !important; color: black !important; }
+        .active { background: #f1c40f !important; color: black !important; border-color: white !important; }
 
         #game-over { 
             display: none; position: absolute; inset: 0; background: rgba(0,0,0,0.95); 
-            z-index: 200; flex-direction: column; justify-content: center; align-items: center;
+            z-index: 200; flex-direction: column; justify-content: center; align-items: center; text-align: center;
         }
-        button { background: #2ecc71; border: none; padding: 15px 40px; font-size: 1.2rem; border-radius: 50px; color: white; cursor: pointer; }
+        .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 20px 0; background: rgba(255,255,255,0.1); padding: 20px; border-radius: 12px; font-size: 1rem; width: 80%; max-width: 400px; }
+        button { background: #2ecc71; border: none; padding: 15px 50px; font-size: 1.5rem; font-weight: bold; border-radius: 50px; color: white; cursor: pointer; }
     </style>
 </head>
 <body>
 
 <div id="game-wrapper">
     <div id="ui">
-        <div style="color:#aaa; letter-spacing:2px">Level 1</div>
+        <div id="level-info" style="color:#aaa; letter-spacing:2px; text-transform: uppercase;">Level 1</div>
         <div id="score">0</div>
     </div>
 
@@ -66,28 +67,27 @@
     <canvas id="gameCanvas"></canvas>
 
     <div id="game-over">
-        <h1 style="color: #e74c3c;">STOPP</h1>
-        <div id="stats-content" style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-bottom:20px;"></div>
+        <h1 style="color: #e74c3c; margin: 0; font-size: 3rem;">STOPP</h1>
+        <p id="final-res" style="font-size: 1.2rem; margin: 10px 0;"></p>
+        <div id="stats-content" class="stats-grid"></div>
         <button onclick="init()">NEUSTART</button>
     </div>
 </div>
 
 <script>
-    // --- KOMPLETTER ZOOM-STOPP ---
-    document.addEventListener('touchstart', (e) => {
-        if (e.touches.length > 1) e.preventDefault(); // Kein Pinch-Zoom
-    }, { passive: false });
-
+    // --- ANTI-ZOOM FIX ---
+    document.addEventListener('touchstart', (e) => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
     let lastClick = 0;
     document.addEventListener('touchend', (e) => {
         let now = Date.now();
-        if (now - lastClick <= 300) e.preventDefault(); // Kein Double-Tap-Zoom
+        if (now - lastClick <= 300) e.preventDefault();
         lastClick = now;
     }, false);
 
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
     const scoreEl = document.getElementById('score');
+    const levelEl = document.getElementById('level-info');
 
     function resize() {
         canvas.width = window.innerWidth;
@@ -96,12 +96,12 @@
     window.addEventListener('resize', resize);
     resize();
 
-    let cfg = { baseSpeed: 3.5, speedInc: 0.15, rotSpeed: 5.5, fov: 400, wallDist: 700, collisionZ: 300 };
+    let cfg = { baseSpeed: 3.5, speedInc: 0.2, rotSpeed: 6, fov: 400, wallDist: 750, collisionZ: 300 };
     let gameRunning = true, score = 0, level = 1, rotation = 0, walls = [];
-    let currentWallColor = '#e74c3c';
     const keys = { left: false, right: false };
 
     let stats = { attempts: { "Oben": 0, "Unten": 0, "Links": 0, "Rechts": 0, "Diagonal": 0 }, success: { "Oben": 0, "Unten": 0, "Links": 0, "Rechts": 0, "Diagonal": 0 } };
+    const levelColors = ['#e74c3c', '#3498db', '#9b59b6', '#1abc9c', '#e67e22', '#f1c40f'];
 
     class Wall {
         constructor(z, hasContent) {
@@ -116,9 +116,17 @@
         Object.keys(stats.attempts).forEach(k => { stats.attempts[k] = 0; stats.success[k] = 0; });
         for(let i=0; i<6; i++) walls.push(new Wall(1500 + i * cfg.wallDist, i > 2));
         score = 0; level = 1; rotation = 0; gameRunning = true;
-        scoreEl.innerText = "0";
+        scoreEl.innerText = "0"; levelEl.innerText = "Level 1";
         document.getElementById('game-over').style.display = 'none';
         loop();
+    }
+
+    function getDirName(angle) {
+        if (angle >= 60 && angle <= 120) return "Unten";
+        if (angle >= 240 && angle <= 300) return "Oben";
+        if (angle >= 330 || angle <= 30) return "Rechts";
+        if (angle >= 150 && angle <= 210) return "Links";
+        return "Diagonal";
     }
 
     function update() {
@@ -133,9 +141,11 @@
                 if(walls[i].gapIdx !== -1 && walls[i].active) {
                     let curRot = (rotation % 360 + 360) % 360;
                     let pAng = (90 - curRot + 360) % 360;
+                    let dir = getDirName((walls[i].gapIdx * 60) + 30);
+                    stats.attempts[dir]++;
                     if(pAng >= walls[i].gapIdx * 60 && pAng <= (walls[i].gapIdx + 1) * 60) {
-                        score += 10; scoreEl.innerText = score;
-                        if(score % 50 === 0) level++;
+                        score += 10; stats.success[dir]++; scoreEl.innerText = score;
+                        if(score % 50 === 0) { level++; levelEl.innerText = "Level " + level; }
                         walls[i].active = false;
                     } else { gameRunning = false; showGameOver(); }
                 }
@@ -147,6 +157,7 @@
     function draw() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         const cx = canvas.width/2, cy = canvas.height/2;
+        let color = levelColors[(level-1) % levelColors.length];
         walls.slice().reverse().forEach(w => {
             let scale = cfg.fov / (cfg.fov + (w.z - cfg.collisionZ));
             if(scale < 0 || scale > 20) return; 
@@ -157,25 +168,39 @@
                 if(j === w.gapIdx && w.active) {
                     ctx.fillStyle = '#f1c40f'; ctx.beginPath(); ctx.arc(cx + Math.cos(a1+0.5)*r, cy + Math.sin(a1+0.5)*r, 15*scale, 0, Math.PI*2); ctx.fill();
                 } else if(w.gapIdx !== -1) {
-                    ctx.strokeStyle = '#e74c3c'; ctx.lineWidth = 6 * scale; ctx.beginPath(); ctx.arc(cx, cy, r, a1, a2); ctx.stroke();
+                    ctx.strokeStyle = color; ctx.lineWidth = 6 * scale; ctx.beginPath(); ctx.arc(cx, cy, r, a1, a2); ctx.stroke();
                 }
             }
         });
         ctx.strokeStyle = '#2ecc71'; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(cx, cy+250, 40, 0, Math.PI*2); ctx.stroke();
     }
 
-    function showGameOver() { document.getElementById('game-over').style.display = 'flex'; }
+    function showGameOver() {
+        let h = '';
+        ["Oben", "Unten", "Links", "Rechts", "Diagonal"].forEach(d => {
+            let t = stats.attempts[d], s = stats.success[d];
+            let p = t > 0 ? Math.round((s/t)*100) : 0;
+            h += `<div style="text-align:left">${d}:</div><div style="text-align:right; color:#f1c40f">${s}/${t} (${p}%)</div>`;
+        });
+        document.getElementById('stats-content').innerHTML = h;
+        document.getElementById('final-res').innerText = `Ergebnis: ${score} (Level ${level})`;
+        document.getElementById('game-over').style.display = 'flex';
+    }
+
     function loop() { update(); draw(); if(gameRunning) requestAnimationFrame(loop); }
 
-    // STEUERUNG FIX
-    const handleInput = (dir, active) => {
-        if(dir === "left") { keys.left = active; document.getElementById('pad-left').classList.toggle('active', active); }
-        if(dir === "right") { keys.right = active; document.getElementById('pad-right').classList.toggle('active', active); }
+    const handleInput = (dir, act) => {
+        if(dir === "left") { keys.left = act; document.getElementById('pad-left').classList.toggle('active', act); }
+        if(dir === "right") { keys.right = act; document.getElementById('pad-right').classList.toggle('active', act); }
     };
 
-    document.getElementById('touch-left').addEventListener('touchstart', (e) => { e.preventDefault(); handleInput("left", true); }, {passive: false});
-    document.getElementById('touch-right').addEventListener('touchstart', (e) => { e.preventDefault(); handleInput("right", true); }, {passive: false});
+    document.getElementById('touch-left').addEventListener('touchstart', (e) => { e.preventDefault(); handleInput("left", true); }, {passive:false});
+    document.getElementById('touch-right').addEventListener('touchstart', (e) => { e.preventDefault(); handleInput("right", true); }, {passive:false});
     window.addEventListener('touchend', () => { handleInput("left", false); handleInput("right", false); });
+    
+    // Keyboard Support
+    document.addEventListener('keydown', e => { if(e.key === "ArrowLeft") handleInput("left", true); if(e.key === "ArrowRight") handleInput("right", true); });
+    document.addEventListener('keyup', e => { if(e.key === "ArrowLeft") handleInput("left", false); if(e.key === "ArrowRight") handleInput("right", false); });
 
     init();
 </script>
