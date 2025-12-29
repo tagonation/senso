@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <title>Senso Pro - Touch & QR Ready</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <style>
+        body { margin: 0; background: #000; font-family: sans-serif; color: white; overflow: hidden; touch-action: none; }
+        #game-wrapper { position: relative; width: 100vw; height: 100vh; display: flex; justify-content: center; align-items: center; }
+        canvas { background: radial-gradient(circle, #1a1a1a 0%, #000 100%); }
+        
+        #ui { position: absolute; top: 20px; text-align: center; width: 100%; pointer-events: none; z-index: 10; }
+        #level-info { font-size: 1rem; color: #aaa; letter-spacing: 2px; }
+        #score { font-size: 4rem; font-weight: bold; color: #f1c40f; }
+        
+        /* Touch Buttons */
+        .touch-zone {
+            position: absolute; bottom: 0; width: 40%; height: 70%;
+            z-index: 50; display: flex; align-items: center; justify-content: center;
+            -webkit-user-select: none; user-select: none;
+        }
+        #touch-left { left: 0; }
+        #touch-right { right: 0; }
+        .touch-indicator {
+            width: 80px; height: 80px; background: rgba(255,255,255,0.1);
+            border: 2px solid rgba(255,255,255,0.2); border-radius: 50%;
+            display: flex; align-items: center; justify-content: center; font-size: 2rem; color: rgba(255,255,255,0.3);
+        }
+
+        #senso-display {
+            position: absolute; bottom: 20px; left: 20px;
+            display: grid; grid-template-columns: repeat(3, 35px); gap: 5px;
+            background: rgba(255,255,255,0.05); padding: 10px; border-radius: 8px; pointer-events: none;
+        }
+        .pad { width: 35px; height: 35px; border: 1px solid #333; display: flex; align-items: center; justify-content: center; border-radius: 4px; color: #444; font-size: 0.7rem; }
+        .active { background: #f1c40f; color: black; border-color: white; }
+
+        #game-over { 
+            display: none; position: absolute; inset: 0; background: rgba(0,0,0,0.95); 
+            z-index: 100; flex-direction: column; justify-content: center; align-items: center; text-align: center;
+        }
+        .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 15px 0; background: rgba(255,255,255,0.1); padding: 15px; border-radius: 12px; font-size: 0.9rem; }
+        button { background: #2ecc71; border: none; padding: 15px 40px; font-size: 1.2rem; font-weight: bold; cursor: pointer; border-radius: 50px; color: white; }
+    </style>
+</head>
+<body>
+
+<div id="game-wrapper">
+    <div id="ui">
+        <div id="level-info">Level 1</div>
+        <div id="score">0</div>
+    </div>
+
+    <div id="touch-left" class="touch-zone"><div class="touch-indicator">←</div></div>
+    <div id="touch-right" class="touch-zone"><div class="touch-indicator">→</div></div>
+    
+    <div id="senso-display">
+        <div></div><div id="pad-up" class="pad">↑</div><div></div>
+        <div id="pad-left" class="pad">←</div><div class="pad" style="border:none"></div><div id="pad-right" class="pad">→</div>
+        <div></div><div id="pad-down" class="pad">↓</div><div></div>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <div id="game-over">
+        <h1 style="color: #e74c3c; margin: 0;">STOPP</h1>
+        <div class="stats-grid" id="stats-content"></div>
+        <button onclick="init()">NEUSTART</button>
+    </div>
+</div>
+
+<script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const scoreEl = document.getElementById('score');
+    const levelEl = document.getElementById('level-info');
+
+    function resize() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    let cfg = { baseSpeed: 3.5, speedInc: 0.15, rotSpeed: 5.0, fov: 400, wallDist: 700, collisionZ: 300 };
+    let gameRunning = true, score = 0, level = 1, rotation = 0, walls = [];
+    let currentWallColor = '#e74c3c';
+    const keys = { left: false, right: false };
+
+    let stats = {
+        attempts: { "Oben": 0, "Unten": 0, "Links": 0, "Rechts": 0, "Diagonal": 0 },
+        success: { "Oben": 0, "Unten": 0, "Links": 0, "Rechts": 0, "Diagonal": 0 }
+    };
+
+    const levelColors = ['#e74c3c', '#3498db', '#9b59b6', '#1abc9c', '#e67e22', '#f1c40f'];
+
+    class Wall {
+        constructor(z, hasContent) {
+            this.z = z;
+            this.gapIdx = hasContent ? Math.floor(Math.random() * 6) : -1;
+            this.active = true;
+        }
+    }
+
+    function init() {
+        walls = [];
+        Object.keys(stats.attempts).forEach(k => { stats.attempts[k] = 0; stats.success[k] = 0; });
+        for(let i=0; i<6; i++) walls.push(new Wall(1500 + i * cfg.wallDist, i > 2));
+        score = 0; level = 1; rotation = 0; gameRunning = true;
+        scoreEl.innerText = "0"; levelEl.innerText = "Level 1";
+        currentWallColor = levelColors[0];
+        document.getElementById('game-over').style.display = 'none';
+        loop();
+    }
+
+    function getDirectionName(angle) {
+        if (angle >= 60 && angle <= 120) return "Unten";
+        if (angle >= 240 && angle <= 300) return "Oben";
+        if (angle >= 330 || angle <= 30) return "Rechts";
+        if (angle >= 150 && angle <= 210) return "Links";
+        return "Diagonal";
+    }
+
+    function update() {
+        if(!gameRunning) return;
+        if(keys.left) rotation -= cfg.rotSpeed;
+        if(keys.right) rotation += cfg.rotSpeed;
+
+        let currentSpeed = cfg.baseSpeed + (level - 1) * cfg.speedInc;
+
+        for(let i=0; i<walls.length; i++) {
+            let prevZ = walls[i].z;
+            walls[i].z -= currentSpeed * 4;
+
+            if (prevZ > cfg.collisionZ && walls[i].z <= cfg.collisionZ) {
+                if(walls[i].gapIdx !== -1 && walls[i].active) {
+                    let curRot = (rotation % 360 + 360) % 360;
+                    let playerAng = (90 - curRot + 360) % 360;
+                    let gapMid = (walls[i].gapIdx * 60) + 30;
+                    let dirName = getDirectionName(gapMid);
+                    stats.attempts[dirName]++;
+
+                    if(playerAng >= walls[i].gapIdx * 60 && playerAng <= (walls[i].gapIdx + 1) * 60) {
+                        score += 10; stats.success[dirName]++;
+                        scoreEl.innerText = score;
+                        if(score % 50 === 0) {
+                            level++; levelEl.innerText = "Level " + level;
+                            currentWallColor = levelColors[(level-1) % levelColors.length];
+                        }
+                        walls[i].active = false;
+                    } else {
+                        gameRunning = false;
+                        showGameOver();
+                    }
+                }
+            }
+        }
+        if(walls[0].z < -400) {
+            walls.shift();
+            walls.push(new Wall(walls[walls.length-1].z + cfg.wallDist, true));
+        }
+    }
+
+    function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const cx = canvas.width/2, cy = canvas.height/2;
+        walls.slice().reverse().forEach(w => {
+            let scale = cfg.fov / (cfg.fov + (w.z - cfg.collisionZ));
+            if(scale < 0 || scale > 20) return; 
+            let r = 250 * scale;
+            for(let j=0; j<6; j++) {
+                let a1 = (j*60 + rotation) * Math.PI/180;
+                let a2 = ((j+1)*60 + rotation) * Math.PI/180;
+                if(j === w.gapIdx && w.active) {
+                    ctx.fillStyle = '#f1c40f'; ctx.beginPath();
+                    ctx.arc(cx + Math.cos(a1+0.5)*r, cy + Math.sin(a1+0.5)*r, 15*scale, 0, Math.PI*2);
+                    ctx.fill();
+                } else if(w.gapIdx !== -1) {
+                    ctx.strokeStyle = currentWallColor; ctx.lineWidth = 6 * scale;
+                    ctx.beginPath(); ctx.arc(cx, cy, r, a1, a2); ctx.stroke();
+                }
+            }
+        });
+        let py = cy + 250;
+        ctx.strokeStyle = '#2ecc71'; ctx.lineWidth = 4;
+        ctx.beginPath(); ctx.arc(cx, py, 40, 0, Math.PI*2); ctx.stroke();
+        ctx.fillStyle = 'white'; ctx.beginPath();
+        ctx.moveTo(cx, py-15); ctx.lineTo(cx-15, py+15); ctx.lineTo(cx+15, py+15); ctx.fill();
+    }
+
+    function showGameOver() {
+        let statsHTML = '';
+        ["Oben", "Unten", "Links", "Rechts", "Diagonal"].forEach(dir => {
+            let total = stats.attempts[dir], win = stats.success[dir];
+            let percent = total > 0 ? Math.round((win / total) * 100) : 0;
+            statsHTML += `<div style="text-align:left">${dir}:</div><div style="text-align:right; color:#f1c40f">${win}/${total} (${percent}%)</div>`;
+        });
+        document.getElementById('stats-content').innerHTML = statsHTML;
+        document.getElementById('game-over').style.display = 'flex';
+    }
+
+    function loop() { update(); draw(); if(gameRunning) requestAnimationFrame(loop); }
+
+    // Steuerung Keyboard & Touch
+    const handleInput = (dir, active) => {
+        if(dir === "left") { keys.left = active; document.getElementById('pad-left').className = active ? 'pad active' : 'pad'; }
+        if(dir === "right") { keys.right = active; document.getElementById('pad-right').className = active ? 'pad active' : 'pad'; }
+    };
+
+    document.addEventListener('keydown', e => { if(e.key === "ArrowLeft") handleInput("left", true); if(e.key === "ArrowRight") handleInput("right", true); });
+    document.addEventListener('keyup', e => { if(e.key === "ArrowLeft") handleInput("left", false); if(e.key === "ArrowRight") handleInput("right", false); });
+
+    document.getElementById('touch-left').addEventListener('pointerdown', e => { e.preventDefault(); handleInput("left", true); });
+    document.getElementById('touch-right').addEventListener('pointerdown', e => { e.preventDefault(); handleInput("right", true); });
+    window.addEventListener('pointerup', () => { handleInput("left", false); handleInput("right", false); });
+
+    init();
+</script>
+</body>
+</html>
